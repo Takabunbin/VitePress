@@ -1,0 +1,33 @@
+:root {
+  --vp-c-brand-1: #2563eb;
+  --vp-c-brand-2: #1d4ed8;
+  --vp-c-brand-3: #1e40af;
+}
+
+.VPDoc h1 { letter-spacing: -0.02em; }
+
+.vp-doc .custom-block.danger {
+  border: 1px solid rgba(220, 38, 38, .28);
+}
+
+.vp-doc .custom-block.warning {
+  border: 1px solid rgba(217, 119, 6, .25);
+}
+
+.vp-doc code { font-variant-ligatures: none; }
+
+.step-ok {
+  margin: 18px 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(22, 163, 74, .28);
+  border-radius: 10px;
+  background: rgba(22, 163, 74, .06);
+}
+
+.stop-line {
+  margin: 18px 0;
+  padding: 14px 16px;
+  border: 2px solid rgba(220, 38, 38, .55);
+  border-radius: 10px;
+  font-weight: 700;
+}

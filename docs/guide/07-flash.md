@@ -1,102 +1,238 @@
-# 07 · 刷入 OpenWrt
+# 07 · 官方 stock-layout 写入
 
-::: danger 高风险阶段
-这一页开始涉及真实 Flash 写入。**必须已经完成第 06 页备份。**
+::: danger 最高风险页
+这一页第一次真正写 NAND Flash。
+
+**远程执行时必须满足：**
+
+- 第 00 页远控隔离测试全部通过
+- 第 06 页备份已经复制到 Mac 本地，并再保存一份
+- 使用 OpenWrt 官方 `stock-initramfs-factory.ubi`
+- 不使用第三方 U-Boot / ubootmod
 :::
 
-## 1. 再次确认当前启动状态
+## 1. 以官方方法识别当前系统
 
-SSH 中执行：
+SSH 进入原厂系统后执行：
 
 ```sh
-nvram get flag_last_success
-nvram get flag_boot_rootfs
+cat /proc/cmdline
 cat /proc/mtd
 ```
 
-把输出保存下来。
-
-<div class="stop-line">如果你无法明确确认当前运行的是哪个 UBI / rootfs 分区，停止。不要猜。</div>
-
-## 2. 上传 stock-layout 安装镜像
-
-OpenWrt 对 AX6000 stock layout 的首次安装镜像文件名通常包含：
+OpenWrt 官方以 `/proc/cmdline` 中的 `firmware=` 为判断依据：
 
 ```text
-xiaomi_redmi-router-ax6000-stock-initramfs-factory.ubi
+firmware=1 → 当前运行 ubi1
+firmware=0 → 当前运行 ubi
 ```
 
-上传到 `/tmp`：
+同时 `/proc/mtd` 应能确认 stock layout 中：
 
-```powershell
-scp -O <你的factory.ubi文件> root@192.168.31.1:/tmp/
+```text
+mtd8 = ubi
+mtd9 = ubi1
 ```
 
-上传后在路由器检查：
+::: danger 双重确认
+不要只看网上编号。
 
-```sh
-ls -lh /tmp/*ax6000* /tmp/*.ubi 2>/dev/null
-```
-
-## 3. 确认目标 UBI 分区
-
-原则只有一个：
-
-> **把 OpenWrt 写入“当前没有启动”的那个系统 UBI 分区。**
-
-不要直接照抄网上的 `/dev/mtd8`、`/dev/mtd9`。
-
-需要通过：
-
-```sh
-cat /proc/mtd
-nvram get flag_last_success
-nvram get flag_boot_rootfs
-```
-
-结合当前设备状态确定目标 MTD。
-
-## 4. 写入格式
-
-确认目标分区后，使用 `ubiformat` 写入安装镜像，格式类似：
-
-```sh
-ubiformat /dev/mtdX -y -f /tmp/<你的stock-initramfs-factory.ubi>
-```
-
-::: danger 最后一次确认
-执行前再次检查：
-
-- `mtdX` 是**非当前启动**的 UBI 分区
-- 文件确实是 **AX6000 stock initramfs factory UBI**
-- Factory / Bdata / FIP 备份已在电脑
-- 电源稳定
+只有当你这台设备自己的 `/proc/mtd` 也明确显示 `mtd8="ubi"`、`mtd9="ubi1"` 时，下面官方命令才允许执行。
 :::
 
-## 5. 切换启动分区
+## 2. 先把官方 initramfs 上传到 `/tmp`
 
-写入成功后，需要把启动标记切换到刚写入的系统分区。
+Mac：
 
-这里不能脱离你第 1 步的实际 `flag_last_success` / `flag_boot_rootfs` 输出写死值。
+```bash
+cd ~/Desktop/AX6000/firmware
+scp -O openwrt-25.12.2-mediatek-filogic-xiaomi_redmi-router-ax6000-stock-initramfs-factory.ubi root@192.168.31.1:/tmp/
+```
 
-<div class="stop-line">实际刷机时，把第 1 步输出发给 ChatGPT 核对，再生成这一步精确命令。</div>
+如果现代 macOS SSH 因旧 Dropbear 拒绝 RSA，可临时这样连接：
 
-## 6. 重启
+```bash
+ssh -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@192.168.31.1
+```
 
-只有前面均确认无误后：
+SCP 同理：
+
+```bash
+scp -O -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa \
+  openwrt-25.12.2-mediatek-filogic-xiaomi_redmi-router-ax6000-stock-initramfs-factory.ubi \
+  root@192.168.31.1:/tmp/
+```
+
+路由器上检查：
 
 ```sh
+ls -lh /tmp/openwrt-*-ax6000-stock-initramfs-factory.ubi
+```
+
+## 3. 上传后再次校验文件
+
+Mac 本地先记下：
+
+```bash
+shasum -a 256 openwrt-25.12.2-mediatek-filogic-xiaomi_redmi-router-ax6000-stock-initramfs-factory.ubi
+```
+
+路由器若有 `sha256sum`：
+
+```sh
+sha256sum /tmp/openwrt-25.12.2-mediatek-filogic-xiaomi_redmi-router-ax6000-stock-initramfs-factory.ubi
+```
+
+两边必须一致。
+
+## 4. 分支 A：如果 `firmware=1`
+
+含义：
+
+```text
+当前运行 ubi1
+下一次切换到 ubi
+目标写入 mtd8 (ubi)
+```
+
+先设置官方要求的 NVRAM：
+
+```sh
+nvram set boot_wait=on
+nvram set uart_en=1
+nvram set flag_boot_rootfs=0
+nvram set flag_last_success=0
+nvram set flag_boot_success=1
+nvram set flag_try_sys1_failed=0
+nvram set flag_try_sys2_failed=0
+nvram commit
+```
+
+再次确认：
+
+```sh
+nvram get flag_boot_rootfs
+nvram get flag_last_success
+```
+
+应得到：
+
+```text
+0
+0
+```
+
+只有 `/proc/mtd` 已确认 `mtd8="ubi"` 时，才执行：
+
+```sh
+ubiformat /dev/mtd8 -y -f /tmp/openwrt-25.12.2-mediatek-filogic-xiaomi_redmi-router-ax6000-stock-initramfs-factory.ubi
+```
+
+## 5. 分支 B：如果 `firmware=0`
+
+含义：
+
+```text
+当前运行 ubi
+下一次切换到 ubi1
+目标写入 mtd9 (ubi1)
+```
+
+先设置官方要求的 NVRAM：
+
+```sh
+nvram set boot_wait=on
+nvram set uart_en=1
+nvram set flag_boot_rootfs=1
+nvram set flag_last_success=1
+nvram set flag_boot_success=1
+nvram set flag_try_sys1_failed=0
+nvram set flag_try_sys2_failed=0
+nvram commit
+```
+
+再次确认：
+
+```sh
+nvram get flag_boot_rootfs
+nvram get flag_last_success
+```
+
+应得到：
+
+```text
+1
+1
+```
+
+只有 `/proc/mtd` 已确认 `mtd9="ubi1"` 时，才执行：
+
+```sh
+ubiformat /dev/mtd9 -y -f /tmp/openwrt-25.12.2-mediatek-filogic-xiaomi_redmi-router-ax6000-stock-initramfs-factory.ubi
+```
+
+## 6. `ubiformat` 成功的判断
+
+不要因为 SSH 还能输入命令就立即重启。
+
+必须看到 `ubiformat` 完整结束，没有 `error` / `failed`。
+
+建议保存整个终端输出到 `~/Desktop/AX6000/logs/`。
+
+::: danger 如果报错
+**不要 reboot，不要重复 ubiformat，不要尝试另一分区。**
+
+保留 SSH 会话和输出，先停止分析。
+:::
+
+## 7. 成功后才重启
+
+```sh
+sync
 reboot
 ```
 
-重启后尝试：
+此时 SSH 断开是正常现象。
+
+## 8. 远程场景如何等待
+
+Mac 的 Wi-Fi 远控必须始终在线。
+
+AX6000 重启后，USB Ethernet 的目标网段从：
 
 ```text
-http://192.168.1.1
+192.168.31.10/24
 ```
 
-或：
+改为：
 
-```powershell
+```text
+192.168.1.10/24
+Gateway：空
+DNS：空
+```
+
+然后测试：
+
+```bash
 ping 192.168.1.1
 ```
+
+成功后：
+
+```bash
+ssh root@192.168.1.1
+```
+
+::: warning 如果 192.168.1.1 不通
+不要让妹妹立即按 Reset / 连续断电。
+
+先等待至少 3–5 分钟，再检查 Mac USB Ethernet 地址、链路状态和 `192.168.31.1`。只有确认设备没有正常启动后，才进入恢复页分析。
+:::
+
+## 本页来源
+
+- OpenWrt 官方 AX6000 安装页：https://openwrt.org/toh/xiaomi/redmi_ax6000
+- OpenWrt 官方设备数据：https://openwrt.org/toh/hwdata/xiaomi/xiaomi_redmi_ax6000
+
+<div class="step-ok"><strong>完成条件：</strong>官方 stock initramfs 已成功启动，且 Mac 仍可通过 Wi-Fi 被远程控制。</div>

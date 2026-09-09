@@ -1,0 +1,12 @@
+{
+  "name": "ax6000-openwrt-guide",
+  "private": true,
+  "scripts": {
+    "docs:dev": "vitepress docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}
